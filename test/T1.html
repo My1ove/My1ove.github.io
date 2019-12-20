@@ -1,0 +1,367 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>首页</title>
+</head>
+
+<body>
+    <div style="width: 1300px;height: 600px;">
+        <div style=" position: absolute;left: 10px;top: 10px;
+	        text-align: center;z-index: 999999">
+            <input type='button' id='btn-zin' onclick="zoomin()" value="放大" />
+            <input type='button' id='btn-zout' onclick="zoomout()" value="缩小" />
+            <input type='button' id='btn-init' onclick="mapInit()" value="初始化" />
+            <input type='button' id='btn-dpoint' onclick="draw_point()" value="绘点" />
+            <input type='button' id='btn-dline' onclick="draw_line()" value="绘线" />
+            <input type='button' id='btn-dpolygon' onclick="draw_polygon()" value="绘面" />
+            <input type='button' id='btn-deactive' onclick="deactiveAll()" value="取消事件" title="取消绘点、绘线、绘面事件" />
+            <input type='button' id='btn-clear' onclick="clearFeatures()" value="清除" />
+            <input type='button' id='btn-dpolyLine' onclick="draw_plotLine()" value="绘轨迹线" title="绘轨迹线，起终点及动态人物" />
+            <input type='button' id='btn-dpolygon' onclick="addMarKerData()" value="添加marker" />
+        </div>
+        <div id="map" style="border: 0px solid #3473b7;
+	            width: 100%;height: 100%;background:#fff;z-index: 0;
+	            padding: 0px!important;margin: 0px!important;"></div>
+    </div>
+    <script type="text/javascript" src="libs/iclient8c/libs/SuperMap.Include.js"></script>
+    <script type="text/javascript">
+    var host = window.isLocal ? window.server : "http://support.supermap.com.cn:8090";
+    var map, mapUrl = host + "/iserver/services/map-changchun/rest/maps/长春市区图";
+    var mapName = "基础图层";
+    var mapRESTLayer; //地图图层对象
+    var mapCenterX = '116.33799'; //地图中心点X坐标
+    var mapCenterY = '39.94879'; //地图中心点Y坐标
+    var mapZoomLevel = 1; //地图展示等级，默认0
+
+    var drawPoint, drawLine, drawPolygon;//, selectFeature
+
+    var plottingLayer;
+    var plotUrl = host + "/iserver/services/plot-jingyong/rest/plot/";
+
+
+    var vectorLayer; //矢量图层对象
+    var vectorLayerName = "矢量图层";
+
+    var markerLayer; //标记图层对象
+    var markerLayerName = "标记图层";
+    var marker;
+
+    var animatorLayer; //动画图层对象
+
+    var ObjStyle, size, offset;
+    ObjStyle = {
+        fillColor: "blue",
+        fillOpacity: 1,
+        hoverFillColor: "white",
+        hoverFillOpacity: 0.8,
+        strokeColor: "red",
+        strokeOpacity: 1,
+        strokeWidth: 3,
+        strokeLinecap: "round",
+        strokeDashstyle: "solid",
+        hoverStrokeColor: "red",
+        hoverStrokeOpacity: 1,
+        hoverStrokeWidth: 0.2,
+        pointRadius: 6,
+        hoverPointRadius: 1,
+        hoverPointUnit: "%",
+        pointerEvents: "visiblePainted",
+        cursor: "inherit",
+        fontColor: "#000000",
+        labelAlign: "cm",
+        labelOutlineColor: "white",
+        labelOutlineWidth: 3
+    };
+    peoStyle = {
+        externalGraphic: './libs/iclient8c/examples/images/walk.png',
+        allowRotate: false,
+        graphicWidth: 20,
+        graphicHeight: 20,
+    };
+
+    var infowin = null; //弹窗
+
+    init();
+
+    function init() {
+        BrowserSupport(); //验证浏览器是否支持
+        map = new SuperMap.Map("map", { controls: [new SuperMap.Control.Navigation(), new SuperMap.Control.ScaleLine()] }); //new SuperMap.Control.Zoom(),
+        mapRESTLayer = new SuperMap.Layer.TiledDynamicRESTLayer(mapName, mapUrl, null, { transparent: true, cacheEnabled: true }, { maxResolution: "auto" });
+        mapRESTLayer.events.on({
+            "layerInitialized": function() {
+                map.addLayer(mapRESTLayer);
+                map.setCenter(new SuperMap.LonLat(5935, -3580), mapZoomLevel);
+                loadEvents();
+            }
+        });
+    };
+
+    function loadEvents() {
+
+        markerLayer = new SuperMap.Layer.Markers(markerLayerName);
+        map.addLayer(markerLayer);
+        vectorLayer = new SuperMap.Layer.Vector(vectorLayerName);
+        vectorLayer.style = ObjStyle;
+        map.addLayer(vectorLayer);
+        plottingLayer = new SuperMap.Layer.PlottingLayer("渲染标号", plotUrl);
+        plottingLayer.style = ObjStyle;
+        map.addLayer(plottingLayer);
+        animatorLayer = new SuperMap.Layer.AnimatorVector("Peo", {}, { speed: 0.003, startTime: 0, }); //设置速度为每帧播放0.003小时的数据//开始时间为0
+        map.addLayer(animatorLayer);
+        drawPoint = new SuperMap.Control.DrawFeature(vectorLayer, SuperMap.Handler.Point, { multi: true });
+        drawPoint.events.on({
+            "featureadded": function(eventArgs) {
+                var pointStr = packagingDatas(eventArgs.feature.geometry.getVertices());
+                console.log(pointStr);
+            }
+        });
+        map.addControl(drawPoint);
+        drawLine = new SuperMap.Control.DrawFeature(vectorLayer, SuperMap.Handler.Path, { multi: true });
+        drawLine.events.on({
+            "featureadded": function(eventArgs) {
+            	var pointStr = packagingDatas(eventArgs.feature.geometry.getVertices());
+            	var points = datasToPointArray(pointStr);
+		        draw_plotLine_ByPoint(points);
+		        console.log(pointStr);
+            }
+        });
+        map.addControl(drawLine);
+        drawPolygon = new SuperMap.Control.DrawFeature(vectorLayer, SuperMap.Handler.Polygon);
+        drawPolygon.events.on({
+            "featureadded": function(eventArgs) {
+                var pointStr = packagingDatas(eventArgs.feature.geometry.getVertices());
+                console.log(pointStr);
+            }
+        });
+        map.addControl(drawPolygon);
+
+        //selectFeature = new SuperMap.Control.SelectFeature(vectorLayer, { onSelect: onFeatureSelect, onUnselect: onUnFeatureSelect });
+        //map上添加控件
+        //map.addControl(selectFeature);
+        
+        loadDatas();
+    }
+	function loadDatas(){
+		//加载轨迹线
+        var localDatas_1 = "2436.950799195,-2410.2555031127|1549.3860766027,-3732.9009720738|4681.9674504579,-3663.2880526548|3046.0638441113,-1957.7715268892";
+        draw_plotLine_ByPoint(datasToPointArray(localDatas_1));
+	}
+
+    //要素被选中时调用此函数,需要传入当前选中要素参数feature
+    function onFeatureSelect(feature) {
+        //TODO
+        alert("1");
+    }
+    //要素被取消选中时调用此函数,需要传入当前要素参数feature
+    function onUnFeatureSelect(feature) {
+        alert("2");
+        //TODO
+    }
+
+    //放大，在当前缩放级别的基础上放大一级。
+    function zoomin() {
+        map.zoomIn();
+    }
+
+    //缩小，在当前缩放级别的基础上缩小一级。
+    function zoomout() {
+        map.zoomOut();
+    }
+    //激活绘点事件
+    function draw_point() {
+        deactiveAll();
+        drawPoint.activate();
+    }
+    //激活绘线事件
+    function draw_line() {
+        deactiveAll();
+        drawLine.activate();
+    }
+    //激活绘面事件
+    function draw_polygon() {
+        deactiveAll();
+        drawPolygon.activate();
+    }
+    //激活选择事件
+    // function selectDo() {
+    //     //deactiveAll();
+    //     selectFeature.activate();
+    // }
+    
+    //取消绘点、绘线、绘面事件
+    function deactiveAll() {
+        closeInfoWin();
+        drawPoint.deactivate();
+        drawLine.deactivate();
+        drawPolygon.deactivate();
+        //selectFeature.deactivate();
+    }
+    /**
+     * 全部图层清除
+     */
+    function clearFeatures() {
+        vectorLayer.removeAllFeatures();
+        plottingLayer.removeAllFeatures();
+        animatorLayer.removeAllFeatures();
+        markerLayer.destroy();
+    }
+    /**
+     * 初始化
+     */
+    function mapInit() {
+        deactiveAll();
+        clearFeatures();
+        map.destroy();
+        init();
+    }
+
+
+    //添加marker
+    function addMarKerData() {
+    	var lonlat = {
+    		x: 1549.3860766027,
+    		y: -3732.9009720738
+    	};
+    	var contentHTML = "<div style='font-size:12px; opacity: 0.8;z-index:99999;'>";
+    	contentHTML += "当前坐标点为：<p>"+lonlat.x+","+lonlat.y+"</p>";
+    	contentHTML += "</div>";
+        closeInfoWin();
+        if(marker){
+        	markerLayer.removeMarker(marker);
+        }
+        var markersize = new SuperMap.Size(21, 21);
+        var markeroffset = new SuperMap.Pixel(-(markersize.w / 2), -markersize.h);
+        var icon = new SuperMap.Icon('./libs/iclient8c/examples/images/marker.png', markersize, markeroffset);
+        marker = new SuperMap.Marker(new SuperMap.LonLat(lonlat.x,lonlat.y), icon);
+        // marker.events.on({
+        //     "click": openInfoWin,
+        //     "touchstart": openInfoWin,    //假如要在移动端的浏览器也实现点击弹框，则在注册touch类事件
+        //     "scope": marker
+        // });
+        markerLayer.addMarker(marker);
+        //var lonlat = marker.getLonLat();
+        
+        var popup = new SuperMap.Popup.FramedCloud("popwin",new SuperMap.LonLat(lonlat.x, lonlat.y),null,contentHTML,icon,true,function(){
+        	markerLayer.removeMarker(marker);
+        	closeInfoWin();
+        });
+        infowin = popup;
+        map.addPopup(popup);
+    }
+
+    //点击生成线
+    function draw_plotLine() {
+        deactiveAll();
+        clearFeatures();
+        var data_line = "6509.3065852068,-1545.0675286836|6056.8226089832,-4085.9390874772|7483.8874570728,-4120.7455471867|7344.6616182348,-1753.9062869406";
+        draw_plotLine_ByPoint(datasToPointArray(data_line));
+    }
+
+    /**
+     * 根据给定坐标点画轨迹线
+     * @param startPoint 数组对象
+     * @param endPoint 数组对象
+     * @param points 数组对象
+     */
+    function draw_plotLine_ByPoint(points) {
+        clearFeatures();
+		var start = points[0];
+    	var end = points[points.length-1];
+        markerLayer = new SuperMap.Layer.Markers(markerLayerName);
+        map.addLayers([markerLayer]);
+        map.setCenter(new SuperMap.LonLat(start.x, start.y), mapZoomLevel);
+        markerLayer.addMarker(new SuperMap.Marker(new SuperMap.LonLat(start.x, start.y), new SuperMap.Icon('./libs/iclient8c/examples/images/start_trans.png', new SuperMap.Size(21, 21), new SuperMap.Pixel(-(21 / 2), -21))));
+        markerLayer.addMarker(new SuperMap.Marker(new SuperMap.LonLat(end.x, end.y), new SuperMap.Icon('./libs/iclient8c/examples/images/end_trans.png', new SuperMap.Size(21, 21), new SuperMap.Pixel(-(21 / 2), -21))));
+        var line_feature = new SuperMap.Feature.Vector(new SuperMap.Geometry.LineString(points));
+        line_feature.style = ObjStyle;
+        vectorLayer.addFeatures(line_feature);
+        var animatorFeatures = [];
+        var featureComps = line_feature.geometry.components;
+        for (var k = 0, len = featureComps.length; k < len; k++) {
+            var peo = new SuperMap.Feature.Vector(featureComps[k].clone(), {
+                FEATUREID: line_feature.id,
+                TIME: k
+            }, peoStyle);
+            animatorFeatures.push(peo);
+        }
+        animatorLayer.addFeatures(animatorFeatures);
+        animatorLayer.animator.setEndTime(featureComps.length - 1);
+        animatorLayer.animator.start();
+    }
+
+
+    /**
+     * 不支持
+     * canvas的浏览器不能运行
+     * android 设备也不能运行
+     */
+    function BrowserSupport() {
+        var broz = SuperMap.Util.getBrowser();
+        if (!document.createElement('canvas').getContext) {
+            //widgets.alert.showAlert(resources.msg_supportCanvas, false);
+            return;
+        } else if (broz.device === 'android') {
+            //widgets.alert.showAlert(resources.msg_supportEquipment, false);
+            return;
+        }
+    }
+
+    //关闭信息框
+    function closeInfoWin() {
+        if (infowin) {
+            try {
+                infowin.hide();
+                infowin.destroy();
+            }
+            catch (e) {
+            }
+        }
+    }
+    /**
+     * 数据组装，根据point集合返回坐标字符串
+     * 根据几何图形的所有顶点的列表points
+     * 将其转换成"x,y|x1,y1"这样的字符串
+     * @return 
+     */
+    function packagingDatas(points){
+		var points_str = "";
+        for (var i = 0; i < points.length; i++) {
+            var x = points[i].x;
+            var y = points[i].y;
+            points_str += x + "," + y;
+            if (i != points.length - 1) {
+                points_str += "|";
+            }
+        }
+        return points_str;
+    }
+
+	/**
+     * 数据转换，将"x,y|x1,y1"格式的数据转换成以俩个坐标[x，y]为数组集合
+     * @param  "x,y|x1,y1"
+     * @return  Array
+     */
+    function datasToPointArray(localDatas) {
+        var point_data = new Array();
+        var points = new Array();
+        var temp_Array = localDatas.split("|");
+        for (var j = 0; j < temp_Array.length; j++) {
+            var point = new Array();
+            var t_x = temp_Array[j].split(",")[0];
+            var t_y = temp_Array[j].split(",")[1];
+            point.push(t_x);
+            point.push(t_y);
+            point_data.push(point);
+            var sg_point = new SuperMap.Geometry.Point(t_x, t_y);
+            points.push(sg_point);
+        }
+        return points;
+    }
+    </script>
+</body>
+
+</html>
